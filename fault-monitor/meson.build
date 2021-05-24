@@ -14,6 +14,13 @@ else
         ]
 endif
 
+if get_option('multi-purpose-monitor').enabled()
+    fault_monitor_sources += [
+        '../utils.cpp',
+        'multi-purpose-monitor.cpp',
+        ]
+endif
+
 executable(
     'phosphor-fru-fault-monitor',
     fault_monitor_sources,
