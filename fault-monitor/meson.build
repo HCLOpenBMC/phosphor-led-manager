@@ -3,21 +3,23 @@ fault_monitor_sources = [
     'monitor-main.cpp',
 ]
 
+if get_option('multi-purpose-monitor').enabled()
+    fault_monitor_sources += [
+        '../utils.cpp',
+        'multi-purpose-status.cpp',
+        ]
+endif
+
 if get_option('monitor-operational-status').enabled()
     fault_monitor_sources += [
         '../utils.cpp',
         'operational-status-monitor.cpp',
         ]
-else
-    fault_monitor_sources += [
-        'fru-fault-monitor.cpp',
-        ]
 endif
 
-if get_option('multi-purpose-monitor').enabled()
+if get_option('fru-fault-monitor').enabled()
     fault_monitor_sources += [
-        '../utils.cpp',
-        'multi-purpose-monitor.cpp',
+        'fru-fault-monitor.cpp',
         ]
 endif
 
