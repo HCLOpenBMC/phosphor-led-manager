@@ -23,7 +23,7 @@ int main(void)
 #ifdef MULTI_PURPOSE_MONITOR
     std::cerr << " In multi purpose monitor \n";
     phosphor::led::multi::purpose::status::Status Status;
-    Status.selectPurpose();
+    //Status.selectPurpose();
 #endif
 
 #ifdef MONITOR_OPERATIONAL_STATUS

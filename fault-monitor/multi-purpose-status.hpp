@@ -23,14 +23,13 @@ class Status
     Status()
     {
         std::cerr << "In status constructor \n";
-        //        auto purpose = "DebugCard";
-        //        selectPurpose(purpose);
+        loadConfigValues();
     }
 
-    //  private:
+ private:
     DBusHandler dBusHandler;
 
-    void selectPurpose();
+    void selectPurpose(const std::string& purpose);
 
     const PropertyValue getPropertyValue(const std::string& objectPath,
                                          const std::string& interface,
@@ -38,10 +37,11 @@ class Status
 
     void setLedGroup(const std::string& objectPath, bool value);
 
-    void selectLedGroup(const std::string& powerStatus,
+    void selectLedGroup(uint16_t position, const std::string& powerStatus,
                         const std::string& healthStatus);
-};
 
+    void loadConfigValues();
+};
 } // namespace status
 } // namespace purpose
 } // namespace multi
