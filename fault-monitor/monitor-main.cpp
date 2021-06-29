@@ -4,12 +4,10 @@
 #include "operational-status-monitor.hpp"
 #endif
 
-#ifdef FRU_FAULT_MONITOR
-#include "fru-fault-monitor.hpp"
-#endif
-
 #ifdef MULTI_PURPOSE_MONITOR
 #include "multi-purpose-status.hpp"
+#else
+#include "fru-fault-monitor.hpp"
 #endif
 
 #include <iostream>
@@ -28,9 +26,7 @@ int main(void)
 
 #ifdef MONITOR_OPERATIONAL_STATUS
     phosphor::led::Operational::status::monitor::Monitor monitor(bus);
-#endif
-
-#ifdef FRU_FAULT_MONITOR
+#else
     phosphor::led::fru::fault::monitor::Add monitor(bus);
 #endif
 

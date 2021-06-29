@@ -15,9 +15,7 @@ if get_option('monitor-operational-status').enabled()
         '../utils.cpp',
         'operational-status-monitor.cpp',
         ]
-endif
-
-if get_option('fru-fault-monitor').enabled()
+else
     fault_monitor_sources += [
         'fru-fault-monitor.cpp',
         ]
