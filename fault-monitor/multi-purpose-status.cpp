@@ -32,7 +32,8 @@ std::map<std::string, std::string> debugCardDbusNames = {
     {"SledObjpath", ""},          {"LedBmcObjpath", ""},
     {"PowerLedOff", ""},          {"LedPowerOn", ""},
     {"LedPowerOff", ""},          {"LedSystemOn", ""},
-    {"LedSystemOff", ""}};
+    {"LedSystemOff", ""},         {"PowerOff", ""},
+    {"SystemOff", ""}};
 
 void Status::selectPurpose(const std::string& purpose)
 {
@@ -158,29 +159,45 @@ void Status::setLedGroup(const std::string& objectPath, bool value)
 void Status::selectLedGroup(uint16_t position, const std::string& powerStatus,
                             const std::string& healthStatus)
 {
-
-    std::cerr << " PowerStatus : " << powerStatus << "\n";
-    std::cerr << " HealthStatus :  " << healthStatus << "\n";
+    std::cerr << " Position     : " << position << "\n";
+    std::cerr << " PowerStatus  : " << powerStatus << "\n";
+    std::cerr << " HealthStatus : " << healthStatus << "\n";
 
     if ((powerStatus == "On") && (healthStatus == "Good"))
     {
+        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
+                    "true");
+        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
+                    "true");
         setLedGroup(debugCardDbusNames["LedPowerOn"] + std::to_string(position),
                     "true");
     }
     else if ((powerStatus == "On") && (healthStatus == "Bad"))
     {
+        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
+                    "true");
+        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
+                    "true");
         setLedGroup(debugCardDbusNames["LedSystemOn"] +
                         std::to_string(position),
                     "true");
     }
     else if ((powerStatus == "Off") && (healthStatus == "Good"))
     {
+        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
+                    "true");
+        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
+                    "true");
         setLedGroup(debugCardDbusNames["LedPowerOff"] +
                         std::to_string(position),
                     "true");
     }
     else if ((powerStatus == "Off") && (healthStatus == "Bad"))
     {
+        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
+                    "true");
+        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
+                    "true");
         setLedGroup(debugCardDbusNames["LedSystemrOff"] +
                         std::to_string(position),
                     "true");

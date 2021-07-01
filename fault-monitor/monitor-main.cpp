@@ -1,11 +1,11 @@
 #include "config.h"
 
-#ifdef MONITOR_OPERATIONAL_STATUS
-#include "operational-status-monitor.hpp"
-#endif
-
 #ifdef MULTI_PURPOSE_MONITOR
 #include "multi-purpose-status.hpp"
+#endif
+
+#ifdef MONITOR_OPERATIONAL_STATUS
+#include "operational-status-monitor.hpp"
 #else
 #include "fru-fault-monitor.hpp"
 #endif
