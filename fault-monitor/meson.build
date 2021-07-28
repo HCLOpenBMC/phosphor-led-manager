@@ -15,11 +15,12 @@ if get_option('monitor-operational-status').enabled()
         '../utils.cpp',
         'operational-status-monitor.cpp',
         ]
-else
-    fault_monitor_sources += [
-        'fru-fault-monitor.cpp',
-        ]
 endif
+#if 0
+#    fault_monitor_sources += [
+#        'fru-fault-monitor.cpp',
+#        ]
+#endif
 
 executable(
     'phosphor-fru-fault-monitor',

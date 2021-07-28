@@ -20,98 +20,114 @@ namespace status
 
 using namespace phosphor::logging;
 
+static constexpr auto PHY_LED_IFACE = "xyz.openbmc_project.Led.Physical";
+static constexpr auto GROUP_LED_IFACE = "xyz.openbmc_project.Led.Group";
+
 std::map<std::string, std::string> sledDbusNames = {{"SledObjpath", ""},
-                                                    {"PowerLedOff", ""}};
+                                                    {"LedOff", ""}};
 
-std::map<std::string, std::string> debugCardDbusNames = {
-    {"KnobSelectorObjpath", ""},  {"KnobSelectorInterface", ""},
-    {"KnobSelectorProperty", ""}, {"PowerStatusObjpath", ""},
-    {"PowerStatusInterface", ""}, {"PowerStatusProperty", ""},
-    {"SensorObjpath", ""},        {"SensorInterface", ""},
-    {"SensorCriticalLow", ""},    {"SensorCriticalHigh", ""},
-    {"SledObjpath", ""},          {"LedBmcObjpath", ""},
-    {"PowerLedOff", ""},          {"LedPowerOn", ""},
-    {"LedPowerOff", ""},          {"LedSystemOn", ""},
-    {"LedSystemOff", ""},         {"PowerOff", ""},
-    {"SystemOff", ""}};
+std::map<std::string, std::string> dbusNames = {{"KnobSelectorObjpath", ""},
+                                                {"KnobSelectorInterface", ""},
+                                                {"KnobSelectorProperty", ""},
+                                                {"PowerStatusObjpath", ""},
+                                                {"PowerStatusInterface", ""},
+                                                {"PowerStatusProperty", ""},
+                                                {"SensorObjpath", ""},
+                                                {"SensorInterface", ""},
+                                                {"SensorCriticalLow", ""},
+                                                {"SensorCriticalHigh", ""},
+                                                {"SledObjpath", ""},
+                                                {"BmcObjpath", ""},
+                                                {"PowerLed", ""},
+                                                {"SystemLed", ""}};
 
-void Status::selectPurpose(const std::string& purpose)
+void Status::sled()
 {
-    /* Sled, DebugCard, Power, Fault */
-    // std::string purpose = "DebugCard";
-
-    std::cerr << " In select purpose func \n";
-    std::cerr << " PURPOSE : " << purpose << "\n";
-
-    if (purpose == "SLED")
+    std::cerr << " In sled \n";
+    setLedGroup(dbusNames["BmcObjpath"], true);
+    setLedGroup(dbusNames["SledObjpath"], true);
+#if 0
+    for (int pos = 1; pos < 5; pos++)
     {
-        setLedGroup(sledDbusNames["PowerLedOff"], "true");
-        setLedGroup(sledDbusNames["SledObjPath"], "true");
+        setPhysicalLed("/xyz/openbmc_project/led/physical/power" +
+                           std::to_string(pos),
+                       "On", 0, 0);
+
+        setPhysicalLed("/xyz/openbmc_project/led/physical/system" +
+                           std::to_string(pos),
+                       "Blink", 20, 200);
     }
-    else if (purpose == "DebugCard")
+#endif
+}
+
+void Status::DebugCard()
+{
+    std::cerr << " In debug card \n";
+
+    /* Get Position property */
+    //    setLedGroup(dbusNames["SledObjPath"], true);
+
+    auto pos = getPropertyValue(dbusNames["KnobSelectorObjpath"],
+                                dbusNames["KnobSelectorInterface"],
+                                dbusNames["KnobSelectorProperty"]);
+    uint16_t position = std::get<uint16_t>(pos);
+    std::cerr << " POSITION : " << position << "\n";
+
+    if (position == 5)
     {
-        std::cerr << " In debug card \n";
-
-        /* Get Position property */
-
-        auto pos = getPropertyValue(debugCardDbusNames["KnobSelectorObjpath"],
-                                    debugCardDbusNames["KnobSelectorInterface"],
-                                    debugCardDbusNames["KnobSelectorProperty"]);
-        uint16_t position = std::get<uint16_t>(pos);
-        std::cerr << " POSITION : " << position << "\n";
-
-        if (position == 5)
+        for (int pos = 1; pos < position; pos++)
         {
-            setLedGroup(debugCardDbusNames["SledObjpath"], "false");
-            setLedGroup(debugCardDbusNames["LedBmcObjpath"], "true");
+            setPhysicalLed(dbusNames["SystemLed"] + std::to_string(pos), "Off",
+                           0, 0);
+            setPhysicalLed(dbusNames["PowerLed"] + std::to_string(pos), "Blink",
+                           50, 500);
         }
-        else
+    }
+    else
+    {
+        /* Get Power Status */
+
+        auto power = getPropertyValue(dbusNames["PowerStatusObjpath"] +
+                                          std::to_string(position),
+                                      dbusNames["PowerStatusInterface"],
+                                      dbusNames["PowerStatusProperty"]);
+
+        std::string powerState = std::get<std::string>(power);
+        std::string powerStatus = powerState.substr(45);
+        std::cerr << " PowerStatus : " << powerStatus << "\n";
+
+        std::string healthStatus = "Good";
+
+        /* Get Sensor Status */
+
+        auto sensorPath = dBusHandler.getSubTreePaths(
+            dbusNames["SensorObjpath"], dbusNames["SensorInterface"]);
+        std::string ser = "/" + std::to_string(position) + "_";
+        std::cerr << ser << "\n";
+        for (auto& sensor : sensorPath)
         {
-            /* Get Power Status */
-
-            auto power =
-                getPropertyValue(debugCardDbusNames["PowerStatusObjpath"] +
-                                     std::to_string(position),
-                                 debugCardDbusNames["PowerStatusInterface"],
-                                 debugCardDbusNames["PowerStatusProperty"]);
-            std::string powerState = std::get<std::string>(power);
-            std::string powerStatus = powerState.substr(45);
-            std::cerr << " PowerStatus : " << powerStatus << "\n";
-
-            std::string healthStatus = "Good";
-
-            /* Get Sensor Status */
-
-            auto sensorPath = dBusHandler.getSubTreePaths(
-                debugCardDbusNames["SensorObjpath"],
-                debugCardDbusNames["SensorInterface"]);
-            std::string ser = std::to_string(position) + "_";
-            std::cerr << ser << "\n";
-            for (auto& sensor : sensorPath)
+            if (sensor.find(ser) != std::string::npos)
             {
-                if (sensor.find(ser) != std::string::npos)
+                auto low =
+                    getPropertyValue(sensor, dbusNames["SensorInterface"],
+                                     dbusNames["SensorCriticalLow"]);
+                bool sensorPropLow = std::get<bool>(low);
+
+                auto high =
+                    getPropertyValue(sensor, dbusNames["SensorInterface"],
+                                     dbusNames["SensorCriticalHigh"]);
+                bool sensorPropHigh = std::get<bool>(high);
+
+                std::cerr << " Low : " << sensorPropLow
+                          << " High : " << sensorPropHigh << "\n";
+
+                if (sensorPropLow || sensorPropHigh)
                 {
-                    auto low = getPropertyValue(
-                        sensor, debugCardDbusNames["SensorInterface"],
-                        debugCardDbusNames["SensorCriticalLow"]);
-                    bool sensorPropLow = std::get<bool>(low);
-
-                    auto high = getPropertyValue(
-                        sensor, debugCardDbusNames["SensorInterface"],
-                        debugCardDbusNames["SensorCriticalHigh"]);
-                    bool sensorPropHigh = std::get<bool>(high);
-
-                    std::cerr << " Low : " << sensorPropLow
-                              << " High : " << sensorPropHigh << "\n";
-
-                    if (sensorPropLow || sensorPropHigh)
-                    {
-                        healthStatus = "Bad";
-                    }
+                    healthStatus = "Bad";
                 }
             }
-            selectLedGroup(position, powerStatus, healthStatus);
         }
+        selectLedGroup(position, powerStatus, healthStatus);
     }
 }
 
@@ -142,17 +158,53 @@ void Status::setLedGroup(const std::string& objectPath, bool value)
 {
     std::cerr << " In set led group \n";
     std::cerr << " Objpath : " << objectPath << "\n";
-
+    std::cerr << " Value : " << value << "\n";
     try
     {
-        dBusHandler.setProperty(objectPath, "xyz.openbmc_project.Led.Group",
-                                "Asserted", value);
+        std::cerr << " Inside try block \n";
+        PropertyValue assertedValue{value};
+        dBusHandler.setProperty(objectPath, GROUP_LED_IFACE, "Asserted",
+                                assertedValue);
     }
     catch (const sdbusplus::exception::SdBusError& e)
     {
         log<level::ERR>("Failed to set Asserted property",
                         entry("ERROR=%s", e.what()),
                         entry("PATH=%s", objectPath.c_str()));
+    }
+}
+
+void Status::setPhysicalLed(const std::string& objPath,
+                            const std::string& action, uint8_t dutyOn,
+                            uint16_t period)
+{
+    std::cerr << " In set physical led \n";
+
+    try
+    {
+        if (action == "Blink")
+        {
+            PropertyValue dutyOnValue{dutyOn};
+            PropertyValue periodValue{period};
+
+            dBusHandler.setProperty(objPath, PHY_LED_IFACE, "DutyOn",
+                                    dutyOnValue);
+            dBusHandler.setProperty(objPath, PHY_LED_IFACE, "Period",
+                                    periodValue);
+        }
+
+        std::string ledAction =
+            "xyz.openbmc_project.Led.Physical.Action." + action;
+        std::cerr << "Led action : " << ledAction << "\n";
+
+        PropertyValue actionValue{ledAction};
+        dBusHandler.setProperty(objPath, PHY_LED_IFACE, "State", actionValue);
+    }
+    catch (const std::exception& e)
+    {
+        log<level::ERR>("Error setting property for physical LED",
+                        entry("ERROR=%s", e.what()),
+                        entry("OBJECT_PATH=%s", objPath.c_str()));
     }
 }
 
@@ -165,46 +217,38 @@ void Status::selectLedGroup(uint16_t position, const std::string& powerStatus,
 
     if ((powerStatus == "On") && (healthStatus == "Good"))
     {
-        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["LedPowerOn"] + std::to_string(position),
-                    "true");
+        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(position), "Off",
+                       0, 0);
+        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(position),
+                       "Blink", 90, 900);
     }
     else if ((powerStatus == "On") && (healthStatus == "Bad"))
     {
-        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["LedSystemOn"] +
-                        std::to_string(position),
-                    "true");
+        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(position), "On",
+                       0, 0);
+
+        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(position),
+                       "Blink", 90, 900);
     }
     else if ((powerStatus == "Off") && (healthStatus == "Good"))
     {
-        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["LedPowerOff"] +
-                        std::to_string(position),
-                    "true");
+        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(position), "Off",
+                       0, 0);
+
+        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(position),
+                       "Blink", 10, 100);
     }
     else if ((powerStatus == "Off") && (healthStatus == "Bad"))
     {
-        setLedGroup(debugCardDbusNames["PowerOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["SystemOff"] + std::to_string(position),
-                    "true");
-        setLedGroup(debugCardDbusNames["LedSystemrOff"] +
-                        std::to_string(position),
-                    "true");
+        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(position), "On",
+                       0, 0);
+
+        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(position),
+                       "Blink", 10, 100);
     }
 }
 
-void Status::loadConfigValues()
+std::string Status::loadConfigValues()
 {
     std::cerr << " In load config values \n";
     const std::string configFilePath =
@@ -215,7 +259,7 @@ void Status::loadConfigValues()
     if (!configFile.is_open())
     {
         log<level::ERR>("loadConfigValues : Cannot open config path");
-        return;
+        return 0;
     }
 
     std::cerr << "After opening config file \n";
@@ -223,19 +267,43 @@ void Status::loadConfigValues()
 
     auto ledPurpose = data["purpose"];
     std::cerr << "Led purpose : " << ledPurpose << "\n";
-
+    std::string opt;
     for (auto& led : ledPurpose)
     {
         std::cerr << "LED : " << led << "\n";
+        opt = led;
+        if (led == "DebugCard" || led == "SLED")
+        {
+            auto dbus = data["dbus_names"];
+            for (auto& name : dbusNames)
+            {
+                //                std::cerr << "SLED :" << name.first << "\n";
+                if (dbus.contains(name.first.c_str()))
+                {
+                    name.second = dbus[name.first];
+                    //                    std::cerr << name.second << "\n";
+                }
+            }
+        }
+        else
+        {
+            throw std::runtime_error("Failed to select LED name");
+        }
+    }
+    return opt;
+}
+#if 0
         if (led == "SLED")
         {
             std::cerr << " Inside SLED \n";
             auto sledDbus = data["sled_dbus"];
             for (auto& name : sledDbusNames)
             {
+                std::cerr << "SLED :" << name.first << "\n";
                 if (sledDbus.contains(name.first.c_str()))
                 {
                     name.second = sledDbus[name.first];
+                    std::cerr << name.second << "\n";
                 }
             }
         }
@@ -255,10 +323,10 @@ void Status::loadConfigValues()
         {
             throw std::runtime_error("Failed to select LED name");
         }
-        std::cerr << " before select purpose led \n";
-        selectPurpose(led);
     }
+    return opt;
 }
+#endif
 
 } // namespace status
 } // namespace purpose

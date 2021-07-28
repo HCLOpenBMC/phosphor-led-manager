@@ -20,13 +20,13 @@ int main(void)
 
 #ifdef MULTI_PURPOSE_MONITOR
     std::cerr << " In multi purpose monitor \n";
-    phosphor::led::multi::purpose::status::Status Status;
-    //Status.selectPurpose();
+    phosphor::led::multi::purpose::status::Status Status(bus);
 #endif
 
 #ifdef MONITOR_OPERATIONAL_STATUS
     phosphor::led::Operational::status::monitor::Monitor monitor(bus);
-#else
+#endif
+#if 0
     phosphor::led::fru::fault::monitor::Add monitor(bus);
 #endif
 
