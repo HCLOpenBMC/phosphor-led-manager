@@ -3,13 +3,6 @@ fault_monitor_sources = [
     'monitor-main.cpp',
 ]
 
-if get_option('multi-purpose-monitor').enabled()
-    fault_monitor_sources += [
-        '../utils.cpp',
-        'multi-purpose-status.cpp',
-        ]
-endif
-
 if get_option('monitor-operational-status').enabled()
     fault_monitor_sources += [
         '../utils.cpp',
@@ -23,6 +16,8 @@ endif
 
 executable(
     'phosphor-fru-fault-monitor',
+    '../utils.cpp',
+    'multi-purpose-status.cpp',
     fault_monitor_sources,
     include_directories: ['.', '../', '../gen'],
     dependencies: deps,

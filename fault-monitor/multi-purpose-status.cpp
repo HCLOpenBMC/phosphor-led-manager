@@ -1,12 +1,13 @@
 #include "multi-purpose-status.hpp"
 
 #include <nlohmann/json.hpp>
-#include <phosphor-logging/elog.hpp>
+//#include <phosphor-logging/elog.hpp>
+#include <xyz/openbmc_project/Chassis/Buttons/Selector/server.hpp>
+#include <xyz/openbmc_project/Led/Physical/server.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <string>
-
-#define BMC 5
 
 namespace phosphor
 {
@@ -19,101 +20,149 @@ namespace purpose
 namespace status
 {
 
-using namespace phosphor::logging;
+// using namespace phosphor::logging;
+using namespace sdbusplus::xyz::openbmc_project::Led::server;
+using namespace sdbusplus::xyz::openbmc_project::Chassis::Buttons::server;
 
 static constexpr auto PHY_LED_IFACE = "xyz.openbmc_project.Led.Physical";
 static constexpr auto GROUP_LED_IFACE = "xyz.openbmc_project.Led.Group";
 
-std::map<std::string, std::string> dbusNames = {{"HostSelectorObjpath", ""},
-                                                {"HostSelectorInterface", ""},
-                                                {"HostSelectorProperty", ""},
-                                                {"PowerStatusObjpath", ""},
-                                                {"PowerStatusInterface", ""},
-                                                {"PowerStatusProperty", ""},
-                                                {"SensorObjpath", ""},
-                                                {"SensorInterface", ""},
-                                                {"SensorCriticalLow", ""},
-                                                {"SensorCriticalHigh", ""},
-                                                {"SledObjpath", ""},
-                                                {"BmcObjpath", ""},
-                                                {"PowerLed", ""},
-                                                {"SystemLed", ""}};
+static constexpr auto POWER_STATE_OBJPATH =
+    "/xyz/openbmc_project/state/chassis";
+static constexpr auto POWER_STATE_IFACE = "xyz.openbmc_project.State.Chassis";
+static constexpr auto POWER_STATE_PROPERTY = "CurrentPowerState";
+static constexpr auto SENSOR_OBJPATH = "/xyz/openbmc_project/sensors";
+static constexpr auto SENSOR_THRES_IFACE =
+    "xyz.openbmc_project.Sensor.Threshold.Critical";
+static constexpr auto SENSOR_CRI_LOW = "CriticalAlarmLow";
+static constexpr auto SENSOR_CRI_HIGH = "CriticalAlarmHigh";
+static constexpr auto SLED_OBJPATH = "/xyz/openbmc_project/led/groups/sled";
+static constexpr auto BMC_OBJPATH = "/xyz/openbmc_project/led/groups/bmc";
+static constexpr auto POWER_LED = "/xyz/openbmc_project/led/physical/power";
+static constexpr auto SYSTEM_LED = "/xyz/openbmc_project/led/physical/system";
 
+/** This function will be called when sled is identified, it will trigger all
+    the system LEDs to blink at 20% DutyCycle with 200 ms On/Off, while
+    keeping all the power LEDs in Off state.
+ */
 void Status::sled()
 {
-    setLedGroup(dbusNames["BmcObjpath"], true);
-    setLedGroup(dbusNames["SledObjpath"], true);
+    for (int pos = 1; pos <= HOST_INSTANCES; pos++)
+    {
+        setPhysicalLed(POWER_LED + std::to_string(pos), Action::On, 0, 0);
+        setPhysicalLed(SYSTEM_LED + std::to_string(pos), Action::Blink, 20,
+                       200);
+    }
 }
 
-void Status::DebugCard()
+/** This function will be called based on the DebugCard host position property.
+    For every signal changes, the host position will be passed as argument.
+
+    DebugCard position property will be from 1 to 5,
+    Position 1 - Host 1
+    Position 2 - Host 2
+    Position 3 - Host 3
+    Position 4 - Host 4
+    Position 5 - BMC
+
+    For BMC position, all the power LEDs will be blinking at 50% DutyCycle
+    (500 ms On/Off), while keeping all the system LEDs in Off state.
+
+    For Host position, the specified host's power status will be checked and
+    also health status of the host will be checked using sensor threshold
+    status.
+
+    Based on the power and health status of each host, the specified host's
+    LED be triggered at different DutyCycle and period.
+ */
+void Status::DebugCard(size_t position)
 {
-    /* Get Position property */
+    std::cerr << " Host : " << HOST_INSTANCES << "\n";
 
-    auto position = getPropertyValue(dbusNames["HostSelectorObjpath"],
-                                dbusNames["HostSelectorInterface"],
-                                dbusNames["HostSelectorProperty"]);
-    uint16_t hostSelection = std::get<uint16_t>(position);
+    std::string hostSelection = std::to_string(position);
 
-    if (hostSelection == BMC)
+    if ((position - 1) == HOST_INSTANCES)
     {
-        for (int pos = 1; pos < BMC; pos++)
+        for (int pos = 1; pos <= HOST_INSTANCES; pos++)
         {
-            setPhysicalLed(dbusNames["SystemLed"] + std::to_string(pos), "Off",
-                           0, 0);
-            setPhysicalLed(dbusNames["PowerLed"] + std::to_string(pos), "Blink",
-                           50, 500);
+            setPhysicalLed(SYSTEM_LED + std::to_string(pos), Action::Off, 0, 0);
+            setPhysicalLed(POWER_LED + std::to_string(pos), Action::Blink, 50,
+                           500);
         }
+        return;
+    }
+
+    /* Get Power Status */
+
+    auto power =
+        getPropertyValue<std::string>(POWER_STATE_OBJPATH + hostSelection,
+                                      POWER_STATE_IFACE, POWER_STATE_PROPERTY);
+
+    PowerState powerStatus;
+    if (power == "xyz.openbmc_project.State.Chassis.PowerState.On")
+    {
+        powerStatus = PowerState::On;
+    }
+    else if (power == "xyz.openbmc_project.State.Chassis.PowerState.Off")
+    {
+        powerStatus = PowerState::Off;
     }
     else
     {
-        /* Get Power Status */
+        log<level::ERR>("Failed to get property of powerstate",
+                        entry("PATH=%s", POWER_STATE_OBJPATH));
+        return;
+    }
 
-        auto power = getPropertyValue(dbusNames["PowerStatusObjpath"] +
-                                          std::to_string(hostSelection),
-                                      dbusNames["PowerStatusInterface"],
-                                      dbusNames["PowerStatusProperty"]);
+    /* Get Sensor Status */
 
-        std::string powerState = std::get<std::string>(power);
-        std::string powerStatus = powerState.substr(45);
+    std::string healthStatus = "Good";
 
-        std::string healthStatus = "Good";
+    auto sensorPath =
+        dBusHandler.getSubTreePaths(SENSOR_OBJPATH, SENSOR_THRES_IFACE);
 
-        /* Get Sensor Status */
+    std::string ser = "/" + hostSelection + "_";
 
-        auto sensorPath = dBusHandler.getSubTreePaths(
-            dbusNames["SensorObjpath"], dbusNames["SensorInterface"]);
-        std::string ser = "/" + std::to_string(hostSelection) + "_";
-
-        for (auto& sensor : sensorPath)
+    for (auto& sensor : sensorPath)
+    {
+        if (sensor.find(ser) != std::string::npos)
         {
-            if (sensor.find(ser) != std::string::npos)
+            auto low = getPropertyValue<bool>(sensor, SENSOR_THRES_IFACE,
+                                              SENSOR_CRI_LOW);
+
+            auto high = getPropertyValue<bool>(sensor, SENSOR_THRES_IFACE,
+                                               SENSOR_CRI_HIGH);
+#if 0
+            if (low == nullptr)
             {
-                auto low =
-                    getPropertyValue(sensor, dbusNames["SensorInterface"],
-                                     dbusNames["SensorCriticalLow"]);
-                bool sensorPropLow = std::get<bool>(low);
-
-                auto high =
-                    getPropertyValue(sensor, dbusNames["SensorInterface"],
-                                     dbusNames["SensorCriticalHigh"]);
-                bool sensorPropHigh = std::get<bool>(high);
-
-                if (sensorPropLow || sensorPropHigh)
-                {
-                    healthStatus = "Bad";
-                }
+                log<level::ERR>("Failed to get property of sensor thresholds",
+                                entry("PATH=%s", sensor));
+                return;
+            }
+/*
+            if (low.empty() || high.empty())
+            {
+                log<level::ERR>("Failed to get property of sensor thresholds",
+                                entry("PATH=%s", sensor));
+                return;
+            }
+*/
+#endif
+            if (low || high)
+            {
+                healthStatus = "Bad";
             }
         }
-        selectLedGroup(hostSelection, powerStatus, healthStatus);
     }
+    selectPhysicalLed(hostSelection, powerStatus, healthStatus);
 }
 
-const PropertyValue Status::getPropertyValue(const std::string& objectPath,
-                                             const std::string& interface,
-                                             const std::string& propertyName)
+template <typename T>
+T Status::getPropertyValue(const std::string& objectPath,
+                           const std::string& interface,
+                           const std::string& propertyName)
 {
     PropertyValue propertyValue{};
-
     try
     {
         propertyValue =
@@ -123,35 +172,19 @@ const PropertyValue Status::getPropertyValue(const std::string& objectPath,
     {
         log<level::ERR>("Failed to get property", entry("ERROR=%s", e.what()),
                         entry("PATH=%s", objectPath.c_str()));
-        return {};
+        throw std::runtime_error("Failed to get property value");
+
     }
 
-    return propertyValue;
+    return std::get<T>(propertyValue);
 }
 
-void Status::setLedGroup(const std::string& objectPath, bool value)
+void Status::setPhysicalLed(const std::string& objPath, Action action,
+                            DutyOn dutyOn, Period period)
 {
     try
     {
-        PropertyValue assertedValue{value};
-        dBusHandler.setProperty(objectPath, GROUP_LED_IFACE, "Asserted",
-                                assertedValue);
-    }
-    catch (const sdbusplus::exception::SdBusError& e)
-    {
-        log<level::ERR>("Failed to set Asserted property",
-                        entry("ERROR=%s", e.what()),
-                        entry("PATH=%s", objectPath.c_str()));
-    }
-}
-
-void Status::setPhysicalLed(const std::string& objPath,
-                            const std::string& action, uint8_t dutyOn,
-                            uint16_t period)
-{
-    try
-    {
-        if (action == "Blink")
+        if (action == Action::Blink)
         {
             PropertyValue dutyOnValue{dutyOn};
             PropertyValue periodValue{period};
@@ -162,8 +195,20 @@ void Status::setPhysicalLed(const std::string& objPath,
                                     periodValue);
         }
 
-        std::string ledAction =
-            "xyz.openbmc_project.Led.Physical.Action." + action;
+        std::string ledAction;
+
+        if (action == Action::On)
+        {
+            ledAction = convertForMessage(Physical::Action::On);
+        }
+        else if (action == Action::Blink)
+        {
+            ledAction = convertForMessage(Physical::Action::Blink);
+        }
+        else
+        {
+            ledAction = convertForMessage(Physical::Action::Off);
+        }
 
         PropertyValue actionValue{ledAction};
         dBusHandler.setProperty(objPath, PHY_LED_IFACE, "State", actionValue);
@@ -176,82 +221,115 @@ void Status::setPhysicalLed(const std::string& objPath,
     }
 }
 
-void Status::selectLedGroup(uint16_t host, const std::string& powerStatus,
-                            const std::string& healthStatus)
+void Status::selectPhysicalLed(const std::string& host, PowerState powerStatus,
+                               const std::string& healthStatus)
 {
-    if ((powerStatus == "On") && (healthStatus == "Good"))
+    switch (powerStatus)
     {
-        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(host), "Off",
-                       0, 0);
-        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(host),
-                       "Blink", 90, 900);
-    }
-    else if ((powerStatus == "On") && (healthStatus == "Bad"))
-    {
-        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(host), "On",
-                       0, 0);
+        case PowerState::On:
+            if (healthStatus == "Good")
+            {
+                setPhysicalLed(SYSTEM_LED + host, Action::Off, 0, 0);
 
-        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(host),
-                       "Blink", 90, 900);
-    }
-    else if ((powerStatus == "Off") && (healthStatus == "Good"))
-    {
-        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(host), "Off",
-                       0, 0);
+                setPhysicalLed(POWER_LED + host, Action::Blink, 90, 900);
+            }
+            else
+            {
+                setPhysicalLed(POWER_LED + host, Action::On, 0, 0);
 
-        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(host),
-                       "Blink", 10, 100);
-    }
-    else if ((powerStatus == "Off") && (healthStatus == "Bad"))
-    {
-        setPhysicalLed(dbusNames["PowerLed"] + std::to_string(host), "On",
-                       0, 0);
+                setPhysicalLed(SYSTEM_LED + host, Action::Blink, 90, 900);
+            }
+            break;
 
-        setPhysicalLed(dbusNames["SystemLed"] + std::to_string(host),
-                       "Blink", 10, 100);
+        case PowerState::Off:
+            if (healthStatus == "Good")
+            {
+                setPhysicalLed(SYSTEM_LED + host, Action::Off, 0, 0);
+
+                setPhysicalLed(POWER_LED + host, Action::Blink, 10, 100);
+            }
+            else
+            {
+                setPhysicalLed(POWER_LED + host, Action::On, 0, 0);
+
+                setPhysicalLed(SYSTEM_LED + host, Action::Blink, 10, 100);
+            }
+            break;
+
+        default:
+            log<level::ERR>("Error in selecting physical LED");
+            return;
     }
 }
 
-std::string Status::loadConfigValues()
+void Status::loadConfigValues(sdbusplus::bus::bus& bus)
 {
-    const std::string configFilePath =
+    static const auto configFilePath =
         "/usr/share/phosphor-led-manager/config.json";
 
-    std::ifstream configFile(configFilePath.c_str());
+    std::ifstream configFile(configFilePath);
 
     if (!configFile.is_open())
     {
-        log<level::ERR>(" LoadConfigValues : Not able to open config file path");
-        return 0;
+        log<level::INFO>(
+            " LoadConfigValues : Not able to open config file path");
+        return;
     }
 
     auto data = nlohmann::json::parse(configFile);
 
     auto ledPurpose = data["purpose"];
-    std::string opt;
 
     for (auto& led : ledPurpose)
     {
-        opt = led;
-        if (led == "DebugCard" || led == "SLED")
+        if (led == "DebugCard" || led == "Sled")
         {
-            auto dbus = data["dbus_names"];
-            for (auto& name : dbusNames)
-            {
-                if (dbus.contains(name.first.c_str()))
-                {
-                    name.second = dbus[name.first];
-                }
-            }
+            matchHandler(bus, led);
         }
         else
         {
             throw std::runtime_error("Failed to select LED name");
         }
     }
-    return opt;
 }
 
+void Status::matchHandler(sdbusplus::bus::bus& bus, const std::string& config)
+{
+
+    if (config == "DebugCard")
+    {
+        matchSignal = std::make_unique<sdbusplus::bus::match_t>(
+            bus,
+            sdbusplus::bus::match::rules::propertiesChanged(
+                "/xyz/openbmc_project/Chassis/Buttons/Selector0",
+                "xyz.openbmc_project.Chassis.Buttons.Selector"),
+            [this](sdbusplus::message::message& msg) {
+                std::string objectName;
+                std::map<std::string, Selector::PropertiesVariant> msgData;
+                msg.read(objectName, msgData);
+
+                auto valPropMap = msgData.find("Position");
+                {
+                    if (valPropMap != msgData.end())
+                    {
+                        size_t value = std::get<size_t>(valPropMap->second);
+                        std::cerr << " value  : " << value << "\n";
+                        /*                        if (value == nullptr)
+                                                {
+                                                   log<level::ERR>("Failed to
+                           get the Position property"); return;
+                                                }
+                        */
+                        DebugCard(value);
+                    }
+                }
+            });
+    }
+    else
+    {
+        sled();
+    }
+}
 } // namespace status
 } // namespace purpose
 } // namespace multi
