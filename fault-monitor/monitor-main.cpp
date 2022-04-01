@@ -16,7 +16,7 @@ int main(void)
     sdbusplus::bus::bus bus = sdbusplus::bus::new_default();
 
 #ifdef MULTI_PURPOSE_MONITOR
-    phosphor::led::multi::purpose::status::Status Status;
+    phosphor::led::multi::purpose::status::Status Status(bus);
 #endif
 
 #ifdef MONITOR_OPERATIONAL_STATUS

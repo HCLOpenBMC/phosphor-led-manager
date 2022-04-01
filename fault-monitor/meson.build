@@ -1,18 +1,17 @@
 fault_monitor_sources = [
     generated_sources,
     'monitor-main.cpp',
+    '../utils.cpp',
 ]
 
 if get_option('multi-purpose-monitor').enabled()
     fault_monitor_sources += [
-        '../utils.cpp',
         'multi-purpose-status.cpp',
         ]
 endif
 
 if get_option('monitor-operational-status').enabled()
     fault_monitor_sources += [
-        '../utils.cpp',
         'operational-status-monitor.cpp',
         ]
 else

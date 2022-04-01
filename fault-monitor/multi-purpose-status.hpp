@@ -22,6 +22,7 @@ namespace status
 using namespace phosphor::led::utils;
 using namespace phosphor::logging;
 
+#if 0
 using DutyOn = uint8_t;
 using Period = uint16_t;
 
@@ -31,7 +32,7 @@ enum class Action
     Off,
     Blink
 };
-
+#endif
 enum class PowerState
 {
     On,
@@ -42,11 +43,26 @@ namespace led
 {
 static constexpr auto SLED_DBUS_PATH =
     "/xyz/openbmc_project/led/groups/enclosure_identify";
+static constexpr auto BMC_DBUS_PATH =
+    "/xyz/openbmc_project/led/groups/bmc_booted";
+
 static constexpr auto GROUP_LED_IFACE = "xyz.openbmc_project.Led.Group";
-static constexpr auto SLED_PROP = "Asserted";
-static constexpr auto POWER_LED = "/xyz/openbmc_project/led/physical/power";
-static constexpr auto SYSTEM_LED = "/xyz/openbmc_project/led/physical/system";
-static constexpr auto PHY_LED_IFACE = "xyz.openbmc_project.Led.Physical";
+static constexpr auto LED_PROP = "Asserted";
+
+static constexpr auto POWER_LED_ON_BLINK =
+    "/xyz/openbmc_project/led/groups/power_led_on_blink";
+static constexpr auto POWER_LED_OFF_BLINK =
+    "/xyz/openbmc_project/led/groups/power_led_off_blink";
+static constexpr auto POWER_LED_OFF =
+    "/xyz/openbmc_project/led/groups/power_led_off";
+
+static constexpr auto SYSTEM_LED_ON_BLINK =
+    "/xyz/openbmc_project/led/groups/system_led_on_blink";
+static constexpr auto SYSTEM_LED_OFF_BLINK =
+    "/xyz/openbmc_project/led/groups/system_led_off_blink";
+static constexpr auto SYSTEM_LED_OFF =
+    "/xyz/openbmc_project/led/groups/system_led_off";
+
 } // namespace led
 
 namespace hostselector
@@ -99,13 +115,20 @@ class Status
      *  @param[in] bus -  D-Bus object
      */
 
-    Status()
+    Status(sdbusplus::bus::bus& bus) : bus(bus)
     {
         std::cerr << " In constructor \n";
-        ledHandler();
+        positionIdentify(bus);
+        //        ledHandler(bus);
     }
 
   private:
+    /* @brief sdbusplus D-Bus connection */
+    sdbusplus::bus::bus& bus;
+
+    /* @brief sdbusplus signal matches for Monitor */
+    std::unique_ptr<sdbusplus::bus::match_t> matchSignal;
+
     /* @brief DBusHandler class handles the D-Bus operations */
     DBusHandler dBusHandler;
 
@@ -134,6 +157,7 @@ class Status
      */
     std::string healthStatus(const std::string& pos);
 
+#if 0
     /** @brief Set the appropriate action to be updated on physical LED.
      *
      *  @param[in]  objectPath   -  D-Bus object path
@@ -168,6 +192,17 @@ class Status
      *        and based on the host, it will set the physical led.
      */
     void ledHandler();
+#endif
+
+    void setPropertyValue(const std::string& objectPath,
+                          const std::string& interface,
+                          const std::string& propertyName,
+                          const PropertyValue& value);
+
+    void setLedGroup(const std::string& ledGroupPath, const std::string& pos);
+    void selectLedGroup(size_t hostSelectorPosition);
+    void ledPositionHandler(size_t position);
+    void positionIdentify(sdbusplus::bus::bus& bus);
 };
 
 } // namespace status

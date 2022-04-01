@@ -60,10 +60,24 @@ const Json readJson(const fs::path& path)
  */
 phosphor::led::Layout::Action getAction(const std::string& action)
 {
-    assert(action == "On" || action == "Blink");
+    //    assert(action == "On" || action == "Blink");
 
-    return action == "Blink" ? phosphor::led::Layout::Blink
-                             : phosphor::led::Layout::On;
+    //    return action == "Blink" ? phosphor::led::Layout::Blink
+    //                             : phosphor::led::Layout::On;
+    phosphor::led::Layout::Action act;
+    if (action == "On")
+    {
+        act = phosphor::led::Layout::On;
+    }
+    else if (action == "Blink")
+    {
+        act = phosphor::led::Layout::Blink;
+    }
+    else
+    {
+        act = phosphor::led::Layout::Off;
+    }
+    return act;
 }
 
 /** @brief Validate the Priority of an LED is same across ALL groups

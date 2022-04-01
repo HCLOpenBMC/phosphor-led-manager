@@ -45,6 +45,25 @@ T Status::getPropertyValue(const std::string& objectPath,
     return std::get<T>(propertyValue);
 }
 
+void Status::setPropertyValue(const std::string& objectPath,
+                              const std::string& interface,
+                              const std::string& propertyName,
+                              const PropertyValue& value)
+{
+    PropertyValue propertyValue{value};
+    try
+    {
+        dBusHandler.setProperty(objectPath, interface, propertyName,
+                                propertyValue);
+    }
+    catch (const sdbusplus::exception::SdBusError& e)
+    {
+        log<level::ERR>("Failed to set property", entry("ERROR=%s", e.what()),
+                        entry("PATH=%s", objectPath.c_str()));
+        throw std::runtime_error("Failed to set property value");
+    }
+}
+
 PowerState Status::powerStatus(const std::string& hostSelection)
 {
     PowerState powerStatus;
@@ -103,15 +122,10 @@ std::string Status::healthStatus(const std::string& hostSelection)
     return healthStatus;
 }
 
+#if 0
 void Status::setPhysicalLed(const std::string& objPath, Action action,
                             DutyOn dutyOn = 0, Period period = 0)
 {
-#if 0
-    std::cerr << " Path   : " << objPath << "\n";
-    std::cerr << " Action : " << static_cast<int>(action) << "\n";
-    std::cerr << " Duty   : " << static_cast<int>(dutyOn) << "\n";
-    std::cerr << " Period : " << static_cast<int>(period) << "\n";
-#endif
     try
     {
         if (action == Action::Blink)
@@ -155,10 +169,6 @@ void Status::setPhysicalLed(const std::string& objPath, Action action,
 void Status::selectPhysicalLed(const std::string& host, PowerState powerStatus,
                                const std::string& healthStatus)
 {
-    std::cerr << "Host   : " << host << "\n";
-    //    std::cerr << "Power  : " << static_cast<int>(powerStatus) << "\n";
-    //    std::cerr << "Health : " << healthStatus << "\n";
-
     switch (powerStatus)
     {
         case PowerState::On:
@@ -196,10 +206,6 @@ void Status::selectPhysicalLed(const std::string& host, PowerState powerStatus,
 void Status::ledSlot(const std::string& host, PowerState power,
                      const std::string& health)
 {
-    //    std::cerr << " Slot  : " << host << "\n";
-    //    std::cerr << " Power : " << static_cast<size_t>(power) << "\n";
-    //    std::cerr << "Helath : " << health << "\n";
-
     if (power == PowerState::On)
     {
         if (health == "Good")
@@ -233,7 +239,7 @@ void Status::ledHandler()
         std::string healthState;
 
         bool sled = getPropertyValue<bool>(
-            led::SLED_DBUS_PATH, led::GROUP_LED_IFACE, led::SLED_PROP);
+            led::SLED_DBUS_PATH, led::GROUP_LED_IFACE, led::LED_PROP);
 
         if (sled)
         {
@@ -310,6 +316,111 @@ void Status::ledHandler()
             }
         }
     }
+}
+#endif
+
+void Status::setLedGroup(const std::string& ledGroupPath, const std::string& pos)
+{
+    setPropertyValue(led::POWER_LED_OFF + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+    setPropertyValue(led::POWER_LED_OFF_BLINK + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+    setPropertyValue(led::POWER_LED_ON_BLINK + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+
+    setPropertyValue(led::SYSTEM_LED_OFF + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+    setPropertyValue(led::SYSTEM_LED_ON_BLINK + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+    setPropertyValue(led::SYSTEM_LED_OFF_BLINK + pos, led::GROUP_LED_IFACE,
+                     led::LED_PROP, false);
+
+    setPropertyValue(ledGroupPath + pos, led::GROUP_LED_IFACE, led::LED_PROP, true);
+}
+
+void Status::selectLedGroup(size_t hostSelectorPosition)
+{
+    std::string pos = std::to_string(hostSelectorPosition);
+    PowerState powerState = powerStatus(pos);
+    std::string healthState = healthStatus(pos);
+
+    switch (powerState)
+    {
+        case PowerState::On:
+            if (healthState == "Good")
+            {
+                setLedGroup(led::POWER_LED_ON_BLINK , pos);
+            }
+            else
+            {
+                setLedGroup(led::SYSTEM_LED_ON_BLINK , pos);
+            }
+            break;
+        case PowerState::Off:
+            if (healthState == "Good")
+            {
+                setLedGroup(led::POWER_LED_OFF_BLINK , pos);
+            }
+            else
+            {
+                setLedGroup(led::SYSTEM_LED_OFF_BLINK , pos);
+            }
+            break;
+        default:
+            log<level::ERR>("Error in selecting physical LED");
+            return;
+    }
+}
+
+void Status::ledPositionHandler(size_t position)
+{
+    bool sledIdentify = getPropertyValue<bool>(
+        led::SLED_DBUS_PATH, led::GROUP_LED_IFACE, led::LED_PROP);
+
+    if (sledIdentify)
+    {
+        std::cerr << " In sled identify \n";
+        setPropertyValue(led::BMC_DBUS_PATH, led::GROUP_LED_IFACE,
+                         led::LED_PROP, false);
+        return;
+    }
+
+    setPropertyValue(led::SLED_DBUS_PATH, led::GROUP_LED_IFACE, led::LED_PROP,
+                     false);
+    if (position == bmcPosition)
+    {
+        std::cerr << " In bmc osition \n";
+        setPropertyValue(led::BMC_DBUS_PATH, led::GROUP_LED_IFACE,
+                         led::LED_PROP, true);
+    }
+    else
+    {
+        std::cerr << " In else cond \n";
+        std::cerr << " Pos : " << position << "\n";
+
+        setPropertyValue(led::BMC_DBUS_PATH, led::GROUP_LED_IFACE,
+                         led::LED_PROP, false);
+        selectLedGroup(position);
+    }
+}
+
+void Status::positionIdentify(sdbusplus::bus::bus& bus)
+{
+    matchSignal = std::make_unique<sdbusplus::bus::match_t>(
+        bus,
+        sdbusplus::bus::match::rules::propertiesChanged(
+            hostselector::SELECTOR_OBJPATH, hostselector::SELECTOR_INTERFACE),
+        [&](sdbusplus::message::message& msg) {
+            std::string objectName;
+            std::map<std::string, HostSelector::PropertiesVariant> msgData;
+            msg.read(objectName, msgData);
+            auto valPropMap = msgData.find(hostselector::SELECTOR_POSITION);
+            if (valPropMap != msgData.end())
+            {
+                size_t value = std::get<size_t>(valPropMap->second);
+                ledPositionHandler(value);
+            }
+        });
 }
 
 } // namespace status
